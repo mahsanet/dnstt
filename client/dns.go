@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bytes"
@@ -11,8 +11,8 @@ import (
 	"net"
 	"time"
 
-	"www.bamsoftware.com/git/dnstt.git/dns"
-	"www.bamsoftware.com/git/dnstt.git/turbotunnel"
+	"github.com/mahsanet/dnstt/dns"
+	"github.com/mahsanet/dnstt/turbotunnel"
 )
 
 const (
@@ -136,21 +136,20 @@ func dnsResponsePayload(resp *dns.Message, domain dns.Name) []byte {
 // were 0 bytes remaining to read from r. It returns io.ErrUnexpectedEOF when
 // EOF occurs in the middle of an encoded packet.
 func nextPacket(r *bytes.Reader) ([]byte, error) {
-	for {
-		var n uint16
-		err := binary.Read(r, binary.BigEndian, &n)
-		if err != nil {
-			// We may return a real io.EOF only here.
-			return nil, err
-		}
-		p := make([]byte, n)
-		_, err = io.ReadFull(r, p)
-		// Here we must change io.EOF to io.ErrUnexpectedEOF.
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		return p, err
+	var n uint16
+	err := binary.Read(r, binary.BigEndian, &n)
+	if err != nil {
+		// We may return a real io.EOF only here.
+		return nil, err
 	}
+	p := make([]byte, n)
+	_, err = io.ReadFull(r, p)
+	// Here we must change io.EOF to io.ErrUnexpectedEOF.
+	if err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	}
+
+	return p, err
 }
 
 // recvLoop repeatedly calls transport.ReadFrom to receive a DNS message,
@@ -256,29 +255,29 @@ func chunks(p []byte, n int) [][]byte {
 //
 //  0. Start with the raw packet contents.
 //
-//	supercalifragilisticexpialidocious
+//     supercalifragilisticexpialidocious
 //
 //  1. Length-prefix the packet and add random padding. A length prefix L < 0xe0
 //     means a data packet of L bytes. A length prefix L ≥ 0xe0 means padding
 //     of L − 0xe0 bytes (not counting the length of the length prefix itself).
 //
-//	\xe3\xd9\xa3\x15\x22supercalifragilisticexpialidocious
+//     \xe3\xd9\xa3\x15\x22supercalifragilisticexpialidocious
 //
 //  2. Prefix the ClientID.
 //
-//	CLIENTID\xe3\xd9\xa3\x15\x22supercalifragilisticexpialidocious
+//     CLIENTID\xe3\xd9\xa3\x15\x22supercalifragilisticexpialidocious
 //
 //  3. Base32-encode, without padding and in lower case.
 //
-//	ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3djmrxwg2lpovzq
+//     ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3djmrxwg2lpovzq
 //
 //  4. Break into labels of at most 63 octets.
 //
-//	ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3d.jmrxwg2lpovzq
+//     ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3d.jmrxwg2lpovzq
 //
 //  5. Append the domain.
 //
-//	ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3d.jmrxwg2lpovzq.t.example.com
+//     ingesrkokreujy6zumkse43vobsxey3bnruwm4tbm5uwy2ltoruwgzlyobuwc3d.jmrxwg2lpovzq.t.example.com
 func (c *DNSPacketConn) send(transport net.PacketConn, p []byte, addr net.Addr) error {
 	var decoded []byte
 	{
@@ -404,4 +403,24 @@ func (c *DNSPacketConn) sendLoop(transport net.PacketConn, addr net.Addr) error 
 			continue
 		}
 	}
+}
+
+// dnsNameCapacity returns the number of bytes remaining for encoded data after
+// including domain in a DNS name.
+func dnsNameCapacity(domain dns.Name) int {
+	// Names must be 255 octets or shorter in total length.
+	// https://tools.ietf.org/html/rfc1035#section-2.3.4
+	capacity := 255
+	// Subtract the length of the null terminator.
+	capacity -= 1
+	for _, label := range domain {
+		// Subtract the length of the label and the length octet.
+		capacity -= len(label) + 1
+	}
+	// Each label may be up to 63 bytes long and requires 64 bytes to
+	// encode.
+	capacity = capacity * 63 / 64
+	// Base32 expands every 5 bytes to 8.
+	capacity = capacity * 5 / 8
+	return capacity
 }

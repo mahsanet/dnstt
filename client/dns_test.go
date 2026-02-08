@@ -1,9 +1,11 @@
-package main
+package client
 
 import (
 	"bytes"
 	"io"
 	"testing"
+
+	"github.com/mahsanet/dnstt/dns"
 )
 
 func allPackets(buf []byte) ([][]byte, error) {
@@ -47,6 +49,25 @@ func TestNextPacket(t *testing.T) {
 		if !packetsEqual(packets, test.packets) || err != test.err {
 			t.Errorf("%x\nreturned %x %v\nexpected %x %v",
 				test.input, packets, err, test.packets, test.err)
+		}
+	}
+}
+
+func TestDNSNameCapacity(t *testing.T) {
+	for domainLen := 0; domainLen < 255; domainLen++ {
+		domain, err := dns.NewName(chunks(bytes.Repeat([]byte{'x'}, domainLen), 63))
+		if err != nil {
+			continue
+		}
+		capacity := dnsNameCapacity(domain)
+		if capacity <= 0 {
+			continue
+		}
+		prefix := []byte(base32Encoding.EncodeToString(bytes.Repeat([]byte{'y'}, capacity)))
+		labels := append(chunks(prefix, 63), domain...)
+		_, err = dns.NewName(labels)
+		if err != nil {
+			t.Errorf("length %v  capacity %v  %v", domainLen, capacity, err)
 		}
 	}
 }
